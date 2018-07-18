@@ -1,7 +1,7 @@
 # aws-cicd-cloudformation
 AWS Continuous Integration and Continuous Delivery Implementation using CloudFormation
 
-This serve as a base implementation to set the CICD up and running. Due to that some values are in place (within the template) by default, feel free to change it according to your needs. 
+This serve as a base implementation to set the CICD up and running. Due to that, some values are in place (within the template) by default, feel free to change it according to your needs. 
 
 In regards with the parameter files, it is available for reference or cli use. 
 
