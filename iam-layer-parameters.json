@@ -1,0 +1,24 @@
+[
+    {
+        "ParameterKey": "RepositoryName",
+        "ParameterValue": "cicd-repo"
+    }, {
+        "ParameterKey": "ProjectId",
+        "ParameterValue": "cicd-project"
+    }, {
+        "ParameterKey": "AppName",
+        "ParameterValue": "cicd-app"
+    }, {
+        "ParameterKey": "S3BucketName",
+        "ParameterValue": "cicd-project-bucket"
+    }, {
+        "ParameterKey": "CodeDeployApplicationName",
+        "ParameterValue": "cicd-project"
+    }, {
+        "ParameterKey": "DeploymentGroupName",
+        "ParameterValue": "cicd-project-DeploymentGroup"
+    }, {
+        "ParameterKey": "CodeBuildProjectName",
+        "ParameterValue": "cicd-project-CodeBuild"
+    }
+]

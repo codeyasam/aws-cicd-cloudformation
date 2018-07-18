@@ -1,0 +1,236 @@
+---
+Resources:
+    CodeCommitRepo:
+        Type: AWS::CodeCommit::Repository
+        Properties:
+            RepositoryName: !ImportValue RepositoryName
+            RepositoryDescription:
+                !Join
+                - ''
+                - - !ImportValue ProjectId
+                  - CodeCommit
+    CodeBuildProject:
+        Type: AWS::CodeBuild::Project
+        Properties:
+            Name: !ImportValue ProjectId
+            Description:
+                !Join
+                - ''
+                - - 'CodeBuild Project for '
+                  - !ImportValue AppName
+            ServiceRole: !ImportValue CodeBuildRole
+            Source:
+                Type: CODEPIPELINE
+            Artifacts:
+                Packaging: zip
+                Type: CODEPIPELINE
+            Environment:
+                ComputeType: small
+                EnvironmentVariables:
+                - Name: S3_BUCKET
+                  Value: !ImportValue S3BucketName
+                Image: aws/codebuild/eb-java-8-amazonlinux-64:2.4.3
+                Type: container
+    CodeDeployApplication:
+        Type: AWS::CodeDeploy::Application
+        Properties:
+            ApplicationName: !ImportValue ProjectId
+    DeploymentGroup:
+        Type: AWS::CodeDeploy::DeploymentGroup
+        Properties:
+            ApplicationName: !Ref CodeDeployApplication
+            DeploymentConfigName: CodeDeployDefault.OneAtATime
+            DeploymentGroupName: !ImportValue DeploymentGroupName
+            ServiceRoleArn: !ImportValue CodeDeployRoleArn
+            Ec2TagFilters:
+            - Key: Environment
+              Type: KEY_AND_VALUE
+              Value: 
+                !Join
+                - '-'
+                - - !ImportValue ProjectId
+                  - WebApp            
+    ProjectPipeline:
+        Type: AWS::CodePipeline::Pipeline
+        Properties:
+            ArtifactStore:
+                Location: !ImportValue S3BucketName
+                Type: S3
+            Name: 
+                !Join 
+                - '-'
+                - - !ImportValue ProjectId 
+                  - Pipeline
+            RoleArn: !ImportValue CodePipelineRoleArn
+            Stages:
+            - Actions:
+              - ActionTypeId:
+                    Category: Source
+                    Owner: AWS
+                    Provider: CodeCommit
+                    Version: 1
+                Configuration:
+                    BranchName: master
+                    PollForSourceChanges: false
+                    RepositoryName: !ImportValue RepositoryName
+                InputArtifacts: []
+                Name: ApplicationSource
+                OutputArtifacts:
+                - Name: 
+                    !Join
+                    - '-'
+                    - - !ImportValue ProjectId
+                      - SourceArtifact
+              Name: Source
+            - Actions:
+              - ActionTypeId:
+                    Category: Build
+                    Owner: AWS
+                    Provider: CodeBuild
+                    Version: 1
+                Configuration:
+                    ProjectName: !ImportValue ProjectId
+                InputArtifacts:
+                - Name: !Join
+                  - '-'
+                  - - !ImportValue ProjectId
+                    - SourceArtifact
+                Name: CodeBuild
+                OutputArtifacts:
+                - Name: !Join
+                  - '-'
+                  - - !ImportValue ProjectId
+                    - BuildArtifact
+              Name: Build                    
+            - Actions:
+              - ActionTypeId:
+                    Category: Deploy
+                    Owner: AWS
+                    Provider: CodeDeploy
+                    Version: 1
+                Configuration:
+                    ApplicationName: !Ref CodeDeployApplication
+                    DeploymentGroupName: !Ref DeploymentGroup
+                InputArtifacts:
+                - Name:
+                    !Join
+                    - '-'
+                    - - !ImportValue ProjectId
+                      - BuildArtifact
+                Name: Deploy
+              Name: Application        
+    S3Bucket:
+        Type: AWS::S3::Bucket
+        Properties:
+            BucketName: !ImportValue S3BucketName
+    S3BucketPolicy:
+        Type: AWS::S3::BucketPolicy
+        Properties:
+            Bucket: !Ref S3Bucket
+            PolicyDocument:
+                Statement:
+                - Action: 
+                  - s3:PutObject
+                  Condition:
+                    StringNotEquals:
+                        s3:x-amz-server-side-encryption: aws:kms
+                  Effect: Deny
+                  Principal: '*'
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                      - /*
+                - Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetBucketVersioning
+                  Condition:
+                    Bool:
+                        aws:SecureTransport: false
+                  Effect: Allow
+                  Principal:
+                    AWS:
+                    - !ImportValue CodeDeployRoleArn
+                    - !ImportValue CodePipelineRoleArn
+                    - !ImportValue WebAppRoleArn
+                    - !ImportValue CodeBuildRoleArn
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                      - /*
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                - Action:
+                  - s3:PutObject
+                  Condition:
+                    Bool:
+                        aws:SecureTransport: true
+                  Effect: Allow
+                  Principal: 
+                    AWS:
+                    - !ImportValue CodeDeployRoleArn
+                    - !ImportValue CodePipelineRoleArn
+                    - !ImportValue WebAppRoleArn
+                    - !ImportValue CodeBuildRoleArn
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+                      - /*
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3Bucket
+    SourceEvent:
+        Type: AWS::Events::Rule
+        Properties:
+            Description: Rule for Amazon CloudWatch Events to detect changes to the source code
+            EventPattern:  
+                detail:
+                    event:
+                    - referenceCreated
+                    - referenceUpdated
+                    referenceName:
+                    - master
+                    referenceType:
+                    - branch
+                detail-type:
+                - CodeCommit Repository State Change
+                resources:
+                - !GetAtt CodeCommitRepo.Arn
+                source:
+                - aws.codecommit
+            Name: 
+                !Join
+                - '-'
+                - - !ImportValue ProjectId
+                  - SourceEvent
+            State: ENABLED
+            Targets:
+            - Arn:
+                !Join
+                - ':'
+                - - arn
+                  - aws
+                  - codepipeline
+                  - !Ref AWS::Region
+                  - !Ref AWS::AccountId
+                  - !Join
+                    - '-'
+                    - - !ImportValue ProjectId
+                      - Pipeline
+              Id: ProjectPipelineTarget          
+              RoleArn: !ImportValue SourceEventRoleArn
+Outputs:
+    CodeBuildProjectArnHere:
+        Description: CodeBuild project arn
+        Value: !GetAtt CodeBuildProject.Arn
+        Export:
+            Name: CodeBuildProjectArnHere

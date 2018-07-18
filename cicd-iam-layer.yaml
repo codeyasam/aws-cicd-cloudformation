@@ -1,0 +1,464 @@
+---
+Parameters:
+    RepositoryName:
+        Type: String
+        Description: AWS CodeCommit repository name.
+        MaxLength: 100
+        MinLength: 2
+    ProjectId:
+        Type: String
+        Description: Project ID.
+        ConstraintDescription: Project IDs must be between 2 and 15 characters, begin with a letter, and only contain lowercase letters, numbers, and hypens (-).
+        MaxLength: 15
+        MinLength: 2
+    AppName:
+        Type: String
+        Description: Name of the application.
+        MaxLength: 100
+        MinLength: 1
+    S3BucketName:
+        Type: String
+        Description: S3 Bucket name.
+    CodeDeployApplicationName:
+        Type: String
+        Description: CodeDeploy application name. 
+    DeploymentGroupName:
+        Type: String
+        Description: DeploymentGroup name. 
+    CodeBuildProjectName:
+        Type: String
+        Description: CodeBuild project name.
+    
+Resources:
+    CodeBuildRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Statement:
+                - Action: sts:AssumeRole
+                  Effect: Allow
+                  Principal:
+                    Service: codebuild.amazonaws.com
+            RoleName:
+                !Join
+                - '-'
+                - - !Ref ProjectId
+                  - CodeBuild
+    CodeBuildPolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyDocument:
+                Statement:
+                - Action:
+                  - logs:CreateLogGroup
+                  - logs:CreateLogStream
+                  - logs:PutLogEvents
+                  Effect: Allow
+                  Resource: 
+                  - '*'
+                - Action:
+                  - s3:PutObject
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                      - /*
+                - Action:
+                  - kms:GenerateDataKey*
+                  - kms:Encrypt
+                  - kms:Decrypt
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn:aws:kms
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - !Join 
+                        - /
+                        - - alias
+                          - aws/s3
+                - Action:
+                  - codecommit:GitPull
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codecommit
+                      - !Ref 'AWS::Region'
+                      - !Ref 'AWS::AccountId'
+                      - !Ref RepositoryName
+            PolicyName: CodeBuildPolicyCICD
+            Roles:
+            - !Ref CodeBuildRole
+    CodeDeployRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Statement:
+                - Action:
+                  - sts:AssumeRole
+                  Effect: Allow
+                  Principal:
+                    Service: 
+                    - codedeploy.amazonaws.com
+            RoleName:
+                !Join
+                - '-'
+                - - !Ref ProjectId
+                  - CodeDeploy
+    CodeDeployPolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyDocument:
+                Statement:
+                - Action:
+                  - ec2:DescribeInstances
+                  - ec2:DescribeInstanceStatus
+                  - autoscaling:*
+                  Effect: Allow
+                  Resource: 
+                  - '*'
+            PolicyName: CodeDeployPolicyCICD
+            Roles:
+            - !Ref CodeDeployRole
+    CodePipelineRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Statement:
+                - Action:
+                  - sts:AssumeRole
+                  Effect: Allow
+                  Principal:
+                    Service:
+                    - codepipeline.amazonaws.com
+            RoleName:
+                !Join
+                - '-'
+                - - !Ref ProjectId
+                  - CodePipeline
+    CodePipelinePolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyName: CodePipelinePolicyCICD
+            Roles:
+            - !Ref CodePipelineRole
+            PolicyDocument:
+                Statement:
+                - Action:
+                  - s3:GetObject
+                  - s3:GetObjectVersion
+                  - s3:GetObjectVersioning
+                  - s3:PutObject
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                      - /*
+                - Action:
+                  - codecommit:CancelUploadArchive
+                  - codecommit:GetBranch
+                  - codecommit:GetCommit
+                  - codecommit:GetUploadArchiveStatus
+                  - codecommit:UploadArchive
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codecommit
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - !Ref RepositoryName
+                - Action:
+                  - codedeploy:CreateDeployment
+                  - codedeploy:GetApplicationRevision
+                  - codedeploy:GetDeployment
+                  - codedeploy:GetDeploymentConfig
+                  - codedeploy:RegisterApplicationRevision
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - application
+                      - !Ref CodeDeployApplicationName
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - deploymentgroup
+                      - !Join
+                        - /
+                        - - !Ref CodeDeployApplicationName
+                          - !Ref DeploymentGroupName
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - deploymentconfig
+                      - '*'
+                - Action:
+                  - codebuild:StartBuild
+                  - codebuild:BatchGetBuilds
+                  - codebuild:StopBuild
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codebuild
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - !Join
+                        - /
+                        - - project                        
+                          - !Ref ProjectId
+    WebAppRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Statement:
+                - Action: 
+                  - sts:AssumeRole
+                  Effect: Allow
+                  Principal:
+                    Service: ec2.amazonaws.com
+            RoleName:
+                !Join
+                - '-'
+                - - !Ref ProjectId
+                  - WebApp
+    WebAppPolicy:
+        Type: AWS::IAM::Policy
+        Properties:
+            PolicyName: WebAppPolicyCICD
+            Roles:
+            - !Ref WebAppRole
+            PolicyDocument:
+                Statement: 
+                - Action:
+                  - ec2:Describe*
+                  Effect: Allow
+                  Resource: '*'
+                - Action:
+                  - s3:Get*
+                  - s3:List*
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                  - !Join
+                    - ''
+                    - - 'arn:aws:s3:::'
+                      - !Ref S3BucketName
+                      - /*
+                - Action:
+                  - cloudformation:DescribeStackResources
+                  Effect: Allow
+                  Resource:
+                  - '*'
+                - Action:
+                  - codedeploy:BatchGet*
+                  - codedeploy:Get*
+                  - codedeploy:List*
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws 
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - application
+                      - !Ref CodeDeployApplicationName
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - deploymentgroup
+                      - !Join
+                        - /
+                        - - !Ref CodeDeployApplicationName
+                          - !Ref DeploymentGroupName
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws 
+                      - codedeploy
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - deploymentconfig
+                      - '*'
+    WebAppInstanceProfile:
+        Type: AWS::IAM::InstanceProfile
+        Properties:
+            Roles:
+            - !Ref WebAppRole
+    SourceEventRole:
+        Type: AWS::IAM::Role
+        Properties:
+            AssumeRolePolicyDocument:
+                Statement:
+                - Action: 
+                  - sts:AssumeRole
+                  Effect: Allow
+                  Principal:
+                    Service:
+                    - events.amazonaws.com
+            Policies:
+            - PolicyDocument:
+                Statement:
+                - Action:
+                  - codepipeline:StartPipelineExecution
+                  Effect: Allow
+                  Resource:
+                  - !Join
+                    - ':'
+                    - - arn
+                      - aws
+                      - codepipeline
+                      - !Ref AWS::Region
+                      - !Ref AWS::AccountId
+                      - !Join
+                        - '-'
+                        - - !Ref ProjectId
+                          - Pipeline
+              PolicyName: SourceEventRolePolicy
+            RoleName: 
+                !Join
+                - '-'
+                - - !Ref ProjectId
+                  - CloudWatchEventRule
+Outputs:
+    RepositoryName:
+        Description: AWS CodeCommit repository name.
+        Value: !Ref RepositoryName
+        Export: 
+            Name: RepositoryName
+    ProjectId:
+        Description: Project Id
+        Value: !Ref ProjectId
+        Export:
+            Name: ProjectId
+    AppName:
+        Description: Application name
+        Value: !Ref AppName
+        Export:
+            Name: AppName
+    S3BucketName:
+        Description: S3 Bucket name
+        Value: !Ref S3BucketName
+        Export:
+            Name: S3BucketName
+    CodeDeployApplicationName:
+        Description: CodeDeploy application name
+        Value: !Ref CodeDeployApplicationName
+        Export:
+            Name: CodeDeployApplicationName
+    CodeBuildRole:
+        Description: CodeBuild role in IAM
+        Value: !Ref CodeBuildRole
+        Export:
+            Name: CodeBuildRole
+    CodeBuildRoleArn:
+        Description: CodeBuild role arn 
+        Value: !GetAtt CodeBuildRole.Arn
+        Export:
+            Name: CodeBuildRoleArn
+    CodeBuildProjectName:
+        Description: CodeBuild project name.
+        Value: !Ref CodeBuildProjectName
+        Export: 
+            Name: CodeBuildProjectName
+    CodeDeployRole:
+        Description: CodeDeploy role in IAM
+        Value: !Ref CodeDeployRole
+        Export:
+            Name: CodeDeployRole
+    WebAppRole:
+        Description: WebApp role in IAM
+        Value: !Ref WebAppRole
+        Export:
+            Name: WebAppRole
+    WebAppRoleArn:
+        Description: WebApp role arn
+        Value: !GetAtt WebAppRole.Arn
+        Export:
+            Name: WebAppRoleArn
+    WebAppInstanceProfile:
+        Description: WebApp instance profile
+        Value: !Ref WebAppInstanceProfile
+        Export:
+            Name: WebAppInstanceProfile
+    CodeDeployRoleArn:
+        Description: CodeDeploy role ARN
+        Value: !GetAtt CodeDeployRole.Arn
+        Export:
+            Name: CodeDeployRoleArn
+    CodePipelineRoleArn:
+        Description: CodePipeline role arn
+        Value: !GetAtt CodePipelineRole.Arn
+        Export:
+            Name: CodePipelineRoleArn
+    DeploymentGroupName:
+        Description: DeploymentGroup name
+        Value: !Ref DeploymentGroupName
+        Export: 
+            Name: DeploymentGroupName
+    SourceEventRoleArn:
+        Description: source event role arn
+        Value: !GetAtt SourceEventRole.Arn
+        Export:
+            Name: SourceEventRoleArn
+    CodeBuildProjectArn:
+        Description: CodeBuild project arn
+        Value: 
+            !Join
+            - ':'
+            - - arn
+              - aws
+              - codebuild
+              - !Ref AWS::Region
+              - !Ref AWS::AccountId
+              - !Join
+                - /
+                - - project
+                  - !Ref ProjectId
+        Export:
+            Name: CodeBuildProjectArn

@@ -1,0 +1,55 @@
+---
+Parameters:
+    KeyPairName:
+        Type: AWS::EC2::KeyPair::KeyName
+        Description: The name of the key pair used to make SSH connections to Amazon EC2 instances.
+
+Resources:
+    WebAppSG:
+        Type: AWS::EC2::SecurityGroup
+        Properties:
+            GroupDescription: Enable HTTP access via port 80 and SSH access via port 22.
+            SecurityGroupIngress:
+            - CidrIp: 0.0.0.0/0
+              FromPort: 80
+              ToPort: 80
+              IpProtocol: tcp
+            - CidrIp: 0.0.0.0/0
+              FromPort: 22
+              ToPort: 22
+              IpProtocol: tcp
+    WebApp:
+        Type: AWS::EC2::Instance
+        Properties:
+            IamInstanceProfile: !ImportValue WebAppInstanceProfile
+            ImageId: ami-6869aa05
+            InstanceType: t2.micro
+            KeyName: !Ref KeyPairName
+            SecurityGroups:
+            - !Ref WebAppSG
+            Tags:
+            - Key: Environment
+              Value: 
+                !Join
+                - '-'
+                - - !ImportValue ProjectId
+                  - WebApp
+            - Key: Name
+              Value:
+                !Join
+                - '-'
+                - - !ImportValue ProjectId 
+                  - WebApp
+            UserData: !Base64
+                Fn::Base64:
+                    !Sub |
+                        #!/bin/bash -ex
+                        yum update -y aws-cfn-bootstrap
+                        yum install -y aws-cli
+                        cd /home/ec2-user/
+                        wget https://aws-codedeploy-${AWS::Region}.s3.amazonaws.com/latest/codedeploy-agent.noarch.rpm
+                        yum -y install codedeploy-agent.noarch.rpm
+                        yum install -y python27-devel python27-pip gcc
+                        pip install boto3
+                        pip install pycrypto
+                        
